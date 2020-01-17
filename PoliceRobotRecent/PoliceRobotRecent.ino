@@ -1,3 +1,32 @@
+//----------------------------------------------------------------------------
+// NNPD Robot Project
+//
+// 2020-01-16  Jacob King      - Original version
+// 2020-01-17  David Lawrence  - Added comments. Fix some indentation.
+//
+//
+// This program implements the drive control for the robot via
+// an Arduino board. The basic function is to read the PWN signals
+// from the reciever representing the steering and throttle positions
+// of the controller and then set the drive motors accordingly.
+//
+//    STR = steering
+//    THR = throttle
+//
+// Details:
+// The arduino reads the PWM signal widths by setting up interrupts
+// on the pins they are connected to. The interrupt service routines
+// (ISR) are called whenever the PWM signal transitions. On a transition
+// to a high state, the global ardunio system clock is recorded. On
+// a transition to a low state, the time passed is recorded as the pulse
+// width to a global variable.
+//
+// The measured pulse width values are mapped to PWM settings to send
+// to the motor controllers. The motors themselves are DC motors, but
+// use Victor controllers (from VEX, but common in FRC). Thus, arduino
+// Servo objects are used to represent the DC motors.
+// 
+
 #include <LiquidCrystal.h>
 #include <Servo.h>
 
@@ -61,7 +90,11 @@ Servo right4;
 // Initializes the lcd screen, values are for pins
 LiquidCrystal lcd(22, 23, 24, 25, 26, 27);
 
-//ISR function for steering
+//----------------------------------------
+// calcSignalSTR
+//
+// ISR function for steering
+//----------------------------------------
 void calcSignalSTR() {
 
   lastInterruptSTR = micros();
@@ -77,7 +110,11 @@ void calcSignalSTR() {
   }
 }
 
-//ISR function for throttle
+//----------------------------------------
+// calcSignalTHR
+//
+// ISR function for throttle
+//----------------------------------------
 void calcSignalTHR() {
   lastInterruptTHR = micros();
 
@@ -92,17 +129,21 @@ void calcSignalTHR() {
   }
 }
 
+//----------------------------------------
+// setup
+//----------------------------------------
 void setup() {
-//set pins to input
+
+  //set pins to input
   pinMode(STR_PIN, INPUT);
   pinMode(THR_PIN, INPUT);
 
-//ISR for steering and throttle 
-// Interrupts stop other processing tasks in order to recieve high priority information, in this case the PWM values of the controller
+  //ISR for steering and throttle 
+  // Interrupts stop other processing tasks in order to recieve high priority information, in this case the PWM values of the controller
   attachInterrupt(digitalPinToInterrupt(3), calcSignalSTR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(2), calcSignalTHR, CHANGE);
 
-//Setup for lcd and Serial monitor
+  //Setup for lcd and Serial monitor
   lcd.begin(16, 2);
 
   lcd.print("LEFT:");
@@ -113,16 +154,16 @@ void setup() {
   
   Serial.begin(9600);
 
-//preMil variable set to 0
+  //preMil variable set to 0
   preMilSTR = 0;
   preMilTHR = 0;  
   
-//victor setup
-// Victors are common FRC motor controllers, used to recieve and distribute PWM or CAN signals
-// This code uses PWM for simplicity, CAN is far more complicated 
+  //victor setup
+  // Victors are common FRC motor controllers, used to recieve and distribute PWM or CAN signals
+  // This code uses PWM for simplicity, CAN is far more complicated 
 
-// The pins are first 'attached' to the motor controllers (tells the servo to look at a specific pin for info)
-// The pin is then set to output mode (the pin will only ever be able to send outputs, never recieve information)
+  // The pins are first 'attached' to the motor controllers (tells the servo to look at a specific pin for info)
+  // The pin is then set to output mode (the pin will only ever be able to send outputs, never recieve information)
   left1.attach(LEFT_1);
   pinMode(LEFT_1, OUTPUT);
   
@@ -147,10 +188,15 @@ void setup() {
   
   right4.attach(RIGHT_4);
   pinMode(RIGHT_4, OUTPUT);
-}
+
+} // end setup()
 
 
+//----------------------------------------
+// writeLeft
+//
 // Because both sets of wheels (2 left, 2 right) will always move at the same speed, functions make writiing the same value quicker
+//----------------------------------------
 void writeLeft(int val) {
   left1.writeMicroseconds(val);
   left2.writeMicroseconds(val);
@@ -158,6 +204,9 @@ void writeLeft(int val) {
   left4.writeMicroseconds(val);
 }
 
+//----------------------------------------
+// writeRight
+//----------------------------------------
 void writeRight(int val) {
   right1.writeMicroseconds(val);
   right2.writeMicroseconds(val);
@@ -165,6 +214,9 @@ void writeRight(int val) {
   right4.writeMicroseconds(val);
 }
 
+//----------------------------------------
+// loop
+//----------------------------------------
 void loop() {
 
   unsigned long currentMilSTR, currentMilTHR;
@@ -177,7 +229,21 @@ void loop() {
 
   lcd.setCursor(0, 1);
 
-//update STR
+  // *** It is not clear what the purpose of the following 2  ***
+  // *** if statements is. They appear to limit updating of   ***
+  // *** the "recentSTR" and "recentTHR" variables to 500     ***
+  // *** millisecond boundaries.  They also update the        ***
+  // *** "dispSTR" and "dispTHR" variables, but these are     ***
+  // *** immediately overwritten right after in the rolling   ***
+  // *** average calculation. Perhaps this is a relic fromw   ***
+  // *** an earlier attempt to smooth the controller values   ***
+  // *** over time that was eventually replaced by the        ***
+  // *** rolling average (??)                                 ***
+  // *** NOTE: On further thinking, this seems to defeat the  ***
+  // *** rolling average if loop() is called at least 6 times ***
+  // *** in 500 milliseconds. Only at the boundaries will the ***
+  // *** averaging have any (albeit brief) effect.            ***
+  //update STR
   if (currentMilSTR - preMilSTR >= interval) {
     preMilSTR = currentMilSTR;
 
@@ -187,7 +253,7 @@ void loop() {
 
   }
 
-//update THR
+  //update THR
   if (currentMilTHR - preMilTHR >= interval) {
     preMilTHR = currentMilTHR;
 
@@ -197,83 +263,100 @@ void loop() {
     
   }
 
- //rolling average calculation
+  //rolling average calculation
   dispSTR = ((recentSTR + firstSTR + secondSTR + thirdSTR + fourthSTR + fifthSTR) / 6);
 
   dispTHR = ((recentTHR + firstTHR + secondTHR + thirdTHR + fourthTHR + fifthTHR) / 6);
   
-//  
-//map values
-// Values used were found based off of experimentation, may not be %100 accurate
+  //  
+  //map values  -  convert from receiver PWM to motor PWM
+  // Values used were found based off of experimentation, may not be %100 accurate
   dispSTR = map(dispSTR, 1080, 1876, 1000, 2000);
   dispTHR = map(dispTHR, 1100, 1888, 1000, 2000);
 
   dispSTR = constrain(dispSTR, 1000, 2000);
   dispTHR = constrain(dispTHR, 1000, 2000);
   
-//print values from rc
+  //print values from rc
   lcd.setCursor(7, 0);
   
-// These no longer display accurate information becuase these were being used to test the state of the robot as a whole
-if (dispSTR  >= 1440 && dispSTR <= 1560) {
-  lcd.print(dispSTR);
-  lcd.setCursor(15, 0);
-  lcd.print("1");
-} else if ((dispSTR <= 1440 || dispSTR >=1560) && (dispTHR <= 1440 || dispTHR >= 1560)) {
-  lcd.print(dispSTR);
-  lcd.setCursor(15, 0);
-  lcd.print("2");
-} else if ((dispTHR >= 1440 || dispTHR <= 1560) && (dispSTR <= 1440 || dispSTR >= 1560)) {
-  lcd.print(dispSTR);
-  lcd.setCursor(15, 0);
-  lcd.print("3");
-}
+  // These no longer display accurate information becuase these were being used to test the state of the robot as a whole
+  if (dispSTR  >= 1440 && dispSTR <= 1560) {
+    lcd.print(dispSTR);
+    lcd.setCursor(15, 0);
+    lcd.print("1");
+  } else if ((dispSTR <= 1440 || dispSTR >=1560) && (dispTHR <= 1440 || dispTHR >= 1560)) {
+    lcd.print(dispSTR);
+    lcd.setCursor(15, 0);
+    lcd.print("2");
+  } else if ((dispTHR >= 1440 || dispTHR <= 1560) && (dispSTR <= 1440 || dispSTR >= 1560)) {
+    lcd.print(dispSTR);
+    lcd.setCursor(15, 0);
+    lcd.print("3");
+  }
 
   lcd.setCursor(7, 1);
   
-// Comment from line 217 applies here too
-if (dispSTR  >= 1440 && dispSTR <= 1560) {
-  // Just use throttle
-  lcd.print(dispSTR);
-  lcd.setCursor(15, 1);
-  lcd.print("1");
-} else if ((dispSTR <= 1440 || dispSTR >=1560) && (dispTHR <= 1440 || dispTHR >= 1560)) {
-  // Steer and throttle
-  lcd.print(dispSTR);
-  lcd.setCursor(15, 1);
-  lcd.print("2");
-} else if ((dispTHR >= 1440 || dispTHR <= 1560) && (dispSTR <= 1440 || dispSTR >= 1560)) {
-  // No throttle, Steer in place
-  lcd.print(dispSTR);
-  lcd.setCursor(15, 1);
-  lcd.print("3");
-}
-
-//drive
-if ((dispSTR >= 1440 && dispSTR <= 1560) && (dispTHR >=1440 && dispTHR <= 1440)) {
-  writeLeft(1500);
-  writeRight(1500);
-} else {
+  // Comment from above applies here too
   if (dispSTR  >= 1440 && dispSTR <= 1560) {
-    if (dispTHR >= 1560) {
-      writeLeft(dispTHR);
-      writeRight((2000 - dispTHR) + 1000);
-   } else if (dispTHR <= 1440) {
-     writeLeft(dispTHR);
-     writeRight(2000 - (dispTHR - 1000));
-   }
+    // Just use throttle
+    lcd.print(dispSTR);
+    lcd.setCursor(15, 1);
+    lcd.print("1");
   } else if ((dispSTR <= 1440 || dispSTR >=1560) && (dispTHR <= 1440 || dispTHR >= 1560)) {
-   writeLeft(constrain((dispTHR + (dispSTR - 1500)), 1000, 2000));
-   writeRight(constrain((dispTHR + -(dispSTR - 1500)), 1000, 2000));
+    // Steer and throttle
+    lcd.print(dispSTR);
+    lcd.setCursor(15, 1);
+    lcd.print("2");
   } else if ((dispTHR >= 1440 || dispTHR <= 1560) && (dispSTR <= 1440 || dispSTR >= 1560)) {
-   writeLeft(dispSTR);
-   writeRight(dispSTR);
+    // No throttle, Steer in place
+    lcd.print(dispSTR);
+    lcd.setCursor(15, 1);
+    lcd.print("3");
   }
-}
+
+  //drive
+  //
+  // Here values are written to the drive motors based on the rolling averages.
+  // - A deadband is implmented for both the STR and THR.
+  // - Values written are in the standard servo range of 1000-2000 with 1500 representing no motion.
+  // - The right side motors are reversed relative to the left (i.e. we must write 1-x instead of x).
+  // - The motors are set using a linear sum of the two controls (when both active).
+  // - If only the STR is active, then the robot will spin at a rate proportional to the STR.
+  
+  if ((dispSTR >= 1440 && dispSTR <= 1560) && (dispTHR >=1440 && dispTHR <= 1440)) {
+    // Both STR and THR in deadband. Stop all motors.
+    writeLeft(1500);
+    writeRight(1500);
+  } else {
+    // At least one of STR or THR are outside the deadband.
+    if (dispSTR  >= 1440 && dispSTR <= 1560) {
+      // STR is in deadband (THR is not)
+      // *** The if statement below is not needed since the writeLeft ***
+      // *** and writeRight calls are the same.                       ***
+      if (dispTHR >= 1560) {
+        writeLeft(dispTHR);
+        writeRight((2000 - dispTHR) + 1000);
+      } else if (dispTHR <= 1440) {
+        writeLeft(dispTHR);
+        writeRight(2000 - (dispTHR - 1000));
+      }
+    } else if ((dispSTR <= 1440 || dispSTR >=1560) && (dispTHR <= 1440 || dispTHR >= 1560)) {
+      // Both STR and THR are out of deadband
+      writeLeft(constrain((dispTHR + (dispSTR - 1500)), 1000, 2000));
+      writeRight(constrain((dispTHR + -(dispSTR - 1500)), 1000, 2000));
+    } else if ((dispTHR >= 1440 || dispTHR <= 1560) && (dispSTR <= 1440 || dispSTR >= 1560)) {
+      // THR in deadband?? (STR is not)
+      // *** The above if statement looks like it should be:  ***
+      //       (dispTHR >= 1440 && dispTHR <= 1560)
+      writeLeft(dispSTR);
+      writeRight(dispSTR);
+    }
+  }
 
   
 
-//rolling average variable assignment
+  //rolling average variable assignment
   if (recentSTR != 0) {
     fifthSTR = recentSTR;
   }
@@ -306,4 +389,4 @@ if ((dispSTR >= 1440 && dispSTR <= 1560) && (dispTHR >=1440 && dispTHR <= 1440))
   if (secondTHR != 0) {
     firstTHR = secondTHR;
   }
-}
+} // end loop()
