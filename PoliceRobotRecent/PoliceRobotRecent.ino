@@ -29,11 +29,15 @@
 
 #include <LiquidCrystal.h>
 #include <Servo.h>
+#include <PinChangeInterrupt.h>
+
 
 
 // pin variable assignment
 const byte STR_PIN = 3;
 const byte THR_PIN = 2;
+const byte AUX_PIN = 12;
+const byte RESET_PIN = 13;
 
 const byte LEFT_1 = 4;
 const byte LEFT_2 = 5;
@@ -54,6 +58,10 @@ unsigned long startH, startL, pulseH, pulseL;
 volatile unsigned long timerStartSTR, timerStartTHR;
 volatile int lastInterruptSTR, lastInterruptTHR; 
 volatile int pulseTimeSTR, pulseTimeTHR;
+volatile unsigned long timerAUX1Start=0;
+
+volatile unsigned long Ncalls_ISR_AUX1=0; // for debugging
+
 
 //STR and THR variable initialization
 int dispSTR = 1500;
@@ -75,6 +83,11 @@ int fifthTHR = 0;
 // Variables used to recieve the current value of the STR and THR
 int pwmSTR;
 int pwmTHR;
+unsigned long int pwmAUX1 = 0;
+
+// Variables used to remember the last setting of the left and right PWM
+int pwmLEFT;
+int pwmRIGHT;
 
 // Declare Servos; the motors use the arduino servo library
 Servo left1;
@@ -130,6 +143,25 @@ void calcSignalTHR() {
 }
 
 //----------------------------------------
+// ISR_AUX1
+//----------------------------------------
+void ISR_AUX1(void) {
+
+  volatile unsigned long now = micros();
+ 
+  if (digitalRead(AUX_PIN) == HIGH) {
+    timerAUX1Start = now;
+  } else {
+    if( now > timerAUX1Start ) {
+      pwmAUX1 = now - timerAUX1Start;
+    }
+    timerAUX1Start = 0;
+  }
+
+  Ncalls_ISR_AUX1++;
+}
+
+//----------------------------------------
 // setup
 //----------------------------------------
 void setup() {
@@ -137,11 +169,17 @@ void setup() {
   //set pins to input
   pinMode(STR_PIN, INPUT);
   pinMode(THR_PIN, INPUT);
+  pinMode(AUX_PIN, INPUT_PULLUP);
+  pinMode(RESET_PIN, OUTPUT);
+  pinMode(49, OUTPUT);
+  pinMode(51, OUTPUT);
+  pinMode(53, OUTPUT);
 
   //ISR for steering and throttle 
   // Interrupts stop other processing tasks in order to recieve high priority information, in this case the PWM values of the controller
   attachInterrupt(digitalPinToInterrupt(3), calcSignalSTR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(2), calcSignalTHR, CHANGE);
+  attachPCINT(digitalPinToPCINT(AUX_PIN), ISR_AUX1, CHANGE);
 
   //Setup for lcd and Serial monitor
   lcd.begin(16, 2);
@@ -202,6 +240,7 @@ void writeLeft(int val) {
   left2.writeMicroseconds(val);
   left3.writeMicroseconds(val);
   left4.writeMicroseconds(val);
+  pwmLEFT = val; // remember for display later
 }
 
 //----------------------------------------
@@ -212,6 +251,7 @@ void writeRight(int val) {
   right2.writeMicroseconds(val);
   right3.writeMicroseconds(val);
   right4.writeMicroseconds(val);
+  pwmRIGHT = val; // remember for display later
 }
 
 //----------------------------------------
@@ -227,7 +267,7 @@ void loop() {
   //pwmSTR = pulseIn(STR_PIN, HIGH);
   //pwmTHR = pulseIn(THR_PIN, HIGH);
 
-  lcd.setCursor(0, 1);
+//  lcd.setCursor(0, 1);
 
   // *** It is not clear what the purpose of the following 2  ***
   // *** if statements is. They appear to limit updating of   ***
@@ -276,44 +316,58 @@ void loop() {
 
   dispSTR = constrain(dispSTR, 1000, 2000);
   dispTHR = constrain(dispTHR, 1000, 2000);
-  
-  //print values from rc
-  lcd.setCursor(7, 0);
-  
-  // These no longer display accurate information becuase these were being used to test the state of the robot as a whole
-  if (dispSTR  >= 1440 && dispSTR <= 1560) {
-    lcd.print(dispSTR);
-    lcd.setCursor(15, 0);
-    lcd.print("1");
-  } else if ((dispSTR <= 1440 || dispSTR >=1560) && (dispTHR <= 1440 || dispTHR >= 1560)) {
-    lcd.print(dispSTR);
-    lcd.setCursor(15, 0);
-    lcd.print("2");
-  } else if ((dispTHR >= 1440 || dispTHR <= 1560) && (dispSTR <= 1440 || dispSTR >= 1560)) {
-    lcd.print(dispSTR);
-    lcd.setCursor(15, 0);
-    lcd.print("3");
-  }
 
+  // Print last PWM values written to drive motors to lcd screen
+  lcd.setCursor(7, 0);
+  lcd.print(pwmLEFT);
   lcd.setCursor(7, 1);
-  
-  // Comment from above applies here too
-  if (dispSTR  >= 1440 && dispSTR <= 1560) {
-    // Just use throttle
-    lcd.print(dispSTR);
-    lcd.setCursor(15, 1);
-    lcd.print("1");
-  } else if ((dispSTR <= 1440 || dispSTR >=1560) && (dispTHR <= 1440 || dispTHR >= 1560)) {
-    // Steer and throttle
-    lcd.print(dispSTR);
-    lcd.setCursor(15, 1);
-    lcd.print("2");
-  } else if ((dispTHR >= 1440 || dispTHR <= 1560) && (dispSTR <= 1440 || dispSTR >= 1560)) {
-    // No throttle, Steer in place
-    lcd.print(dispSTR);
-    lcd.setCursor(15, 1);
-    lcd.print("3");
-  }
+  lcd.print(pwmRIGHT);
+
+//  lcd.setCursor(0, 0);
+//  lcd.print("AUX 1: ");
+//  lcd.print(pwmAUX1);
+//
+//  lcd.setCursor(0, 1);
+//  lcd.print("Ncalls: ");
+//  lcd.print(Ncalls_ISR_AUX1);
+
+//  //print values from rc
+//  lcd.setCursor(7, 0);
+//  
+//  // These no longer display accurate information becuase these were being used to test the state of the robot as a whole
+//  if (dispSTR  >= 1440 && dispSTR <= 1560) {
+//    lcd.print(dispSTR);
+//    lcd.setCursor(15, 0);
+//    lcd.print("1");
+//  } else if ((dispSTR <= 1440 || dispSTR >=1560) && (dispTHR <= 1440 || dispTHR >= 1560)) {
+//    lcd.print(dispSTR);
+//    lcd.setCursor(15, 0);
+//    lcd.print("2");
+//  } else if ((dispTHR >= 1440 || dispTHR <= 1560) && (dispSTR <= 1440 || dispSTR >= 1560)) {
+//    lcd.print(dispSTR);
+//    lcd.setCursor(15, 0);
+//    lcd.print("3");
+//  }
+//
+//  lcd.setCursor(7, 1);
+//  
+//  // Comment from above applies here too
+//  if (dispSTR  >= 1440 && dispSTR <= 1560) {
+//    // Just use throttle
+//    lcd.print(dispSTR);
+//    lcd.setCursor(15, 1);
+//    lcd.print("1");
+//  } else if ((dispSTR <= 1440 || dispSTR >=1560) && (dispTHR <= 1440 || dispTHR >= 1560)) {
+//    // Steer and throttle
+//    lcd.print(dispSTR);
+//    lcd.setCursor(15, 1);
+//    lcd.print("2");
+//  } else if ((dispTHR >= 1440 || dispTHR <= 1560) && (dispSTR <= 1440 || dispSTR >= 1560)) {
+//    // No throttle, Steer in place
+//    lcd.print(dispSTR);
+//    lcd.setCursor(15, 1);
+//    lcd.print("3");
+//  }
 
   //drive
   //
@@ -324,7 +378,7 @@ void loop() {
   // - The motors are set using a linear sum of the two controls (when both active).
   // - If only the STR is active, then the robot will spin at a rate proportional to the STR.
   
-  if ((dispSTR >= 1440 && dispSTR <= 1560) && (dispTHR >=1440 && dispTHR <= 1440)) {
+  if ((dispSTR >= 1440 && dispSTR <= 1560) && (dispTHR >=1440 && dispTHR <= 1560)) {
     // Both STR and THR in deadband. Stop all motors.
     writeLeft(1500);
     writeRight(1500);
@@ -389,4 +443,31 @@ void loop() {
   if (secondTHR != 0) {
     firstTHR = secondTHR;
   }
+
+  // Target RESET
+  // The target reset button is "F" on the controller. When the user presses it either 
+  // forward or backward, the pwmAUX1 value will go down to something around 1060.
+  // Otherwise, it rests at around 1860. 
+  // n.b. if the controller itself is not turned on, it is around 1500.
+  //
+  // Consider anything under 1200 to mean the user is pressing it so we drive
+  // the output pin (RESET_PIN) high. Otherwise, we sink it. This means the
+  // reset "pulse" will have a width determined by how long the user holds the button.
+  // The relay will catch a pulse of any length so this should not be a problem.
+  lcd.setCursor(13, 0);
+  if( pwmAUX1 < 1200 ){
+    // User is pressing reset button ("F" on controller)
+    digitalWrite(RESET_PIN, LOW);
+    digitalWrite(49, LOW);
+    digitalWrite(51, LOW);
+    digitalWrite(53, LOW);
+    lcd.print("RST");
+  }else{
+    digitalWrite(RESET_PIN, HIGH);
+    digitalWrite(49, HIGH);
+    digitalWrite(51, HIGH);
+    digitalWrite(53, HIGH);
+    lcd.print("   ");
+  }
+  
 } // end loop()
