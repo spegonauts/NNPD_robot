@@ -3,7 +3,10 @@
 //
 // 2020-01-16  Jacob King      - Original version
 // 2020-01-17  David Lawrence  - Added comments. Fix some indentation.
+// 2020-01-21  David Lawrence  - Added code for RESET button for target
 //
+// Requires: 
+//    PinChangeInterrupt
 //
 // This program implements the drive control for the robot via
 // an Arduino board. The basic function is to read the PWN signals
@@ -21,11 +24,18 @@
 // a transition to a low state, the time passed is recorded as the pulse
 // width to a global variable.
 //
-// The measured pulse width values are mapped to PWM settings to send
-// to the motor controllers. The motors themselves are DC motors, but
-// use Victor controllers (from VEX, but common in FRC). Thus, arduino
-// Servo objects are used to represent the DC motors.
+// The measured pulse width values are mapped to different PWM settings
+// to send to the motor controllers. The motors themselves are DC motors,
+// but are driven by use Victor controllers which use a PWM signal to
+// determine voltage and polarity. Thus, arduino Servo objects are used
+// to represent the DC motors.
 // 
+// The reset button for the target is implemented in a similar fashion
+// using the AUX1 output of the receiver. Here though, the state is
+// either on or off and the corresponding PWM from AUX1 is either
+// ~1860 (not pressed) or ~1060(pressed). The output pin on the arduino
+// used for the reset is set high when the button is activate and low
+// when it is not.
 
 #include <LiquidCrystal.h>
 #include <Servo.h>
@@ -58,8 +68,8 @@ unsigned long startH, startL, pulseH, pulseL;
 volatile unsigned long timerStartSTR, timerStartTHR;
 volatile int lastInterruptSTR, lastInterruptTHR; 
 volatile int pulseTimeSTR, pulseTimeTHR;
-volatile unsigned long timerAUX1Start=0;
 
+volatile unsigned long timerAUX1Start=0;
 volatile unsigned long Ncalls_ISR_AUX1=0; // for debugging
 
 
@@ -144,6 +154,8 @@ void calcSignalTHR() {
 
 //----------------------------------------
 // ISR_AUX1
+//
+// ISR function for reset
 //----------------------------------------
 void ISR_AUX1(void) {
 
@@ -171,9 +183,6 @@ void setup() {
   pinMode(THR_PIN, INPUT);
   pinMode(AUX_PIN, INPUT_PULLUP);
   pinMode(RESET_PIN, OUTPUT);
-  pinMode(49, OUTPUT);
-  pinMode(51, OUTPUT);
-  pinMode(53, OUTPUT);
 
   //ISR for steering and throttle 
   // Interrupts stop other processing tasks in order to recieve high priority information, in this case the PWM values of the controller
@@ -323,6 +332,14 @@ void loop() {
   lcd.setCursor(7, 1);
   lcd.print(pwmRIGHT);
 
+//*** The code below was in the original version and wrote the measured ***
+//*** PWM values to the screen. It also included information about each ***
+//*** of the STR and THR values being in the deadband in the form of a  ***
+//*** 1,2,or 3. I'm not sure that was still working though since I did  ***
+//*** not see them change from "1". Regardless, This has been commented ***
+//*** out in preference for the above which displays the PWM motor      ***
+//*** settings and the code at the bottom which displays if the reset   ***
+//*** button is being pressed.                                          ***
 //  lcd.setCursor(0, 0);
 //  lcd.print("AUX 1: ");
 //  lcd.print(pwmAUX1);
@@ -451,23 +468,22 @@ void loop() {
   // n.b. if the controller itself is not turned on, it is around 1500.
   //
   // Consider anything under 1200 to mean the user is pressing it so we drive
-  // the output pin (RESET_PIN) high. Otherwise, we sink it. This means the
+  // the output pin (RESET_PIN) low. Otherwise, we drive it high. This means the
   // reset "pulse" will have a width determined by how long the user holds the button.
   // The relay will catch a pulse of any length so this should not be a problem.
+  //
+  // n.b. on the robot, the orange and blue wires cokming out of the multi-wire white
+  // cable should be connected to RESET_PIN on the Arduino and to the +5V rail on the
+  // breadboard. The order doesn't actually matter since current in either direction
+  // should activate the relay.
   lcd.setCursor(13, 0);
   if( pwmAUX1 < 1200 ){
     // User is pressing reset button ("F" on controller)
     digitalWrite(RESET_PIN, LOW);
-    digitalWrite(49, LOW);
-    digitalWrite(51, LOW);
-    digitalWrite(53, LOW);
     lcd.print("RST");
   }else{
     digitalWrite(RESET_PIN, HIGH);
-    digitalWrite(49, HIGH);
-    digitalWrite(51, HIGH);
-    digitalWrite(53, HIGH);
-    lcd.print("   ");
+    lcd.print("   "); // clear "RST" if button is not being pressed
   }
   
 } // end loop()
